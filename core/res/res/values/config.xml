@@ -1419,6 +1419,9 @@
          Also, the battery stats are flushed to disk when we hit this level.  -->
     <integer name="config_criticalBatteryWarningLevel">10</integer>
 
+    <!-- Full charge design capacity in microamp-hours. Zero uses the value from the health HAL. -->
+    <integer name="config_batteryFullChargeDesignCapacityUah">0</integer>
+
     <!-- Shutdown if the battery temperature exceeds (this value * 0.1) Celsius. -->
     <integer name="config_shutdownBatteryTemperature">680</integer>
 

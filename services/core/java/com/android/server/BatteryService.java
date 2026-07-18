@@ -162,6 +162,7 @@ public final class BatteryService extends SystemService {
     private final IBatteryStats mBatteryStats;
     BinderService mBinderService;
     private final Handler mHandler;
+    private final int mBatteryFullChargeDesignCapacityUah;
 
     private final Object mLock = new Object();
     private final ConditionVariable mConditionVariable = new ConditionVariable();
@@ -471,6 +472,8 @@ public final class BatteryService extends SystemService {
         Objects.requireNonNull(looper);
 
         mContext = context;
+        mBatteryFullChargeDesignCapacityUah = mContext.getResources().getInteger(
+                com.android.internal.R.integer.config_batteryFullChargeDesignCapacityUah);
         mHandler = new Handler(looper, mLocalCallback, true /*async*/);
         mLed = new Led(context, getLocalService(LightsManager.class));
         mBatteryStats = BatteryStatsService.getService();
@@ -754,6 +757,10 @@ public final class BatteryService extends SystemService {
 
         synchronized (mLock) {
             if (!mUpdatesStopped) {
+                if (mBatteryFullChargeDesignCapacityUah > 0) {
+                    info.batteryFullChargeDesignCapacityUah =
+                            mBatteryFullChargeDesignCapacityUah;
+                }
                 mHealthInfo = info;
                 // Process the new values.
                 processValuesLocked(false);
