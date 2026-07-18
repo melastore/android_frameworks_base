@@ -34,6 +34,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.hardware.biometrics.BiometricFingerprintConstants;
 import android.hardware.biometrics.BiometricPrompt;
@@ -55,10 +56,13 @@ import android.os.VibrationAttributes;
 import android.os.VibrationEffect;
 import android.provider.Settings;
 import android.util.Log;
+import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
+import android.view.SurfaceControl;
 import android.view.View;
+import android.view.ViewRootImpl;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityManager;
 
@@ -147,9 +151,12 @@ import javax.inject.Inject;
  */
 @SuppressWarnings("deprecation")
 @SysUISingleton
-public class UdfpsController implements DozeReceiver, Dumpable {
+public class UdfpsController implements DozeReceiver, Dumpable, Runnable {
     private static final String TAG = "UdfpsController";
     private static final long AOD_SEND_FINGER_UP_DELAY_MILLIS = 1000;
+
+    private View mHbmDummyView;
+    private SurfaceControl mHbmSurfaceControl;
 
     private static final long MIN_UNCHANGED_INTERACTION_LOG_INTERVAL = 50;
 
@@ -1125,6 +1132,7 @@ public class UdfpsController implements DozeReceiver, Dumpable {
                     + " current: " + mOverlay.getRequestId());
             return;
         }
+        createHbmSurfaceControl();
         if (isOptical()) {
             mLatencyTracker.onActionStart(ACTION_UDFPS_ILLUMINATE);
         }
@@ -1216,6 +1224,7 @@ public class UdfpsController implements DozeReceiver, Dumpable {
             long gestureStart,
             boolean isAod) {
         mExecution.assertIsMainThread();
+        destroyHbmSurfaceControl();
         mActivePointerId = MotionEvent.INVALID_POINTER_ID;
         mAcquiredReceived = false;
         if (mOnFingerDown) {
@@ -1239,6 +1248,91 @@ public class UdfpsController implements DozeReceiver, Dumpable {
 
         unconfigureDisplay(view);
         cancelAodSendFingerUpAction();
+    }
+
+    private void createHbmSurfaceControl() {
+        if (mHbmSurfaceControl != null) {
+            return;
+        }
+
+        Rect sensorBounds = mOverlayParams.getSensorBounds();
+        if (sensorBounds == null) {
+            return;
+        }
+
+        WindowManager.LayoutParams params =
+                new WindowManager.LayoutParams(
+                        sensorBounds.width(),
+                        sensorBounds.height(),
+                        sensorBounds.left,
+                        sensorBounds.top,
+                        2024,
+                        0x1000028,
+                        PixelFormat.TRANSLUCENT);
+        params.setTitle("TranshitHBMController");
+        params.gravity = Gravity.TOP | Gravity.LEFT;
+
+        mHbmDummyView = new View(mContext);
+        mHbmDummyView.setAlpha(0.0f);
+
+        try {
+            mWindowManager.addView(mHbmDummyView, params);
+        } catch (RuntimeException e) {
+            Log.e(TAG, "Failed to add HBM dummy view", e);
+            mHbmDummyView = null;
+            return;
+        }
+
+        ViewRootImpl viewRoot = mHbmDummyView.getViewRootImpl();
+        if (viewRoot == null) {
+            mHbmDummyView.post(this);
+            return;
+        }
+
+        SurfaceControl surfaceControl = viewRoot.getSurfaceControl();
+        if (surfaceControl != null && surfaceControl.isValid()) {
+            mHbmSurfaceControl = surfaceControl;
+        } else {
+            mWindowManager.removeView(mHbmDummyView);
+            mHbmDummyView = null;
+        }
+    }
+
+    private void destroyHbmSurfaceControl() {
+        if (mHbmDummyView != null) {
+            try {
+                mWindowManager.removeView(mHbmDummyView);
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Failed to remove HBM dummy view", e);
+            }
+        }
+        mHbmDummyView = null;
+        mHbmSurfaceControl = null;
+    }
+
+    @Override
+    public void run() {
+        if (mHbmDummyView == null) {
+            return;
+        }
+
+        ViewRootImpl viewRoot = mHbmDummyView.getViewRootImpl();
+        if (viewRoot == null) {
+            return;
+        }
+
+        SurfaceControl surfaceControl = viewRoot.getSurfaceControl();
+        if (surfaceControl != null && surfaceControl.isValid()) {
+            mHbmSurfaceControl = surfaceControl;
+        }
+    }
+
+    public void setHbmSurfaceControl(SurfaceControl surfaceControl) {
+        mHbmSurfaceControl = surfaceControl;
+    }
+
+    public View getHbmDummyView() {
+        return mHbmDummyView;
     }
 
     /**
