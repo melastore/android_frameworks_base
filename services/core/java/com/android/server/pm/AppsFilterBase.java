@@ -117,6 +117,9 @@ public abstract class AppsFilterBase implements AppsFilterSnapshot {
             "org.lineageos.updater"
     );
 
+    private static final ThreadLocal<Boolean> sResolvingHomeForVisibility =
+            ThreadLocal.withInitial(() -> false);
+
     /**
      * This contains a list of app UIDs that are implicitly queryable because another app explicitly
      * interacted with it. For example, if application A starts a service in application B,
@@ -408,12 +411,24 @@ public abstract class AppsFilterBase implements AppsFilterSnapshot {
 
     private static boolean isCallerHomeProcess(Computer snapshot, int callingUid,
             @Nullable Object callingSetting) {
-        final ComponentName homeActivity =
-                snapshot.getDefaultHomeActivity(UserHandle.getUserId(callingUid));
-        if (homeActivity == null) {
+        // Resolving the default HOME activity invokes package visibility filtering again.
+        // Do not recursively resolve HOME for a candidate encountered by that nested query.
+        if (sResolvingHomeForVisibility.get()) {
             return false;
         }
-        return containsCallingPackage(snapshot, callingSetting, homeActivity.getPackageName());
+
+        sResolvingHomeForVisibility.set(true);
+        try {
+            final ComponentName homeActivity =
+                    snapshot.getDefaultHomeActivity(UserHandle.getUserId(callingUid));
+            if (homeActivity == null) {
+                return false;
+            }
+            return containsCallingPackage(
+                    snapshot, callingSetting, homeActivity.getPackageName());
+        } finally {
+            sResolvingHomeForVisibility.remove();
+        }
     }
 
     private static boolean containsCallingPackage(Computer snapshot,
